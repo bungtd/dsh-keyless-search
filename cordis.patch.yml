@@ -1,0 +1,24 @@
+# dsh-keyless-search bundle layer.
+#
+# Registers a web-search provider that needs NO API key. Both backends are
+# hosted MCP services that answer unauthenticated, the same approach the
+# OpenCode CLI uses for its `websearch` tool.
+#
+# The `web` row's whole `config` block is REPLACED by this patch, so every field
+# the base bundle sets is restated: dropping `fetchProvider: http` would leave two
+# usable fetch providers registered (deepseek-fetch-api + http) and every web_fetch
+# would fail with WEB_PROVIDER_AMBIGUOUS.
+- insert:
+    - id: keyless-search
+      name: 'dsh-keyless-search'
+      config:
+        backends:
+          - exa
+          - parallel
+        timeoutMs: 45000
+        maxResults: 10
+
+- id: web
+  config:
+    searchProvider: keyless-mcp
+    fetchProvider: http

@@ -1,0 +1,6 @@
+# Normalize line endings so the bundle behaves identically on Windows and POSIX.
+* text=auto
+*.md text eol=lf
+*.js text eol=lf
+*.yml text eol=lf
+*.json text eol=lf

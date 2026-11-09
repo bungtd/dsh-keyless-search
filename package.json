@@ -1,0 +1,40 @@
+{
+  "name": "dsh-keyless-search",
+  "version": "1.0.0",
+  "description": "Keyless web search for DeepSeek Harness: Exa and Parallel hosted MCP backends, no API key required. Works on Windows, macOS, and Linux.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "files": [
+    "lib/index.js",
+    "cordis.patch.yml",
+    "README.md",
+    "README.id.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "web-search",
+    "websearch",
+    "exa",
+    "parallel",
+    "mcp",
+    "keyless",
+    "agent",
+    "coding-assistant"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
