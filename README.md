@@ -4,9 +4,10 @@
 
 **Web search for DeepSeek Harness that works without an API key.**
 
-A DSH bundle that registers a `web_search` backend for the `ctx.web` seam using
-hosted MCP services that accept unauthenticated requests — the same approach the
-OpenCode CLI takes for its `websearch` tool. No sign-up, no key, no credit card.
+A DSH bundle that registers a `web_search` backend for the `ctx.web` seam. It
+chains several independent public backends and returns the first one that
+produces sources, so a single endpoint going down or rate-limiting does not
+break search. No sign-up, no key, no credit card.
 
 Works on **Windows, macOS, and Linux**.
 
@@ -14,20 +15,40 @@ Works on **Windows, macOS, and Linux**.
 
 ## Why it needs no API key
 
-Both backends are public hosted MCP endpoints that answer `tools/call` without
-authentication:
+Every backend is a public endpoint that answers unauthenticated requests — no
+credential is read, stored, or transmitted.
 
-| Backend | Endpoint | Tool | Role |
+| Backend | Endpoint | Transport | Role |
 |---|---|---|---|
-| Exa | `https://mcp.exa.ai/mcp` | `web_search_exa` | primary |
-| Parallel | `https://mcp.parallel.ai/mcp` | `web_search` | fallback |
+| WebCrawler | `webcrawler.com/search/web` | HTML | general |
+| Mwmbl | `api.mwmbl.org/search` | JSON | general |
+| Lumy | `search.lumy.live/search?format=json` | JSON (SearXNG) | general |
+| Wikipedia | `en.wikipedia.org/w/api.php` | JSON | specialist |
+| Hacker News | `hn.algolia.com/api/v1/search` | JSON | specialist |
+| TinyFish | `agent.tinyfish.ai/mcp` | MCP JSON-RPC | general (guest tier) |
+| Exa | `mcp.exa.ai/mcp` | MCP JSON-RPC | general |
+| Parallel | `mcp.parallel.ai/mcp` | MCP JSON-RPC | general |
 
-No credential is read, stored, or transmitted. The plugin calls the endpoint
-directly and parses the returned sources.
+Optional backends, not in the default chain — add the ones you want to
+`backends`:
 
-> These are third-party public services. Their limits and availability can change
-> without notice — that is exactly why the plugin ships a fallback chain instead
-> of a single backend.
+| Backend | Endpoint | Transport | Best for |
+|---|---|---|---|
+| MDN | `developer.mozilla.org/api/v1/search` | JSON | web platform / browser APIs |
+| npm | `registry.npmjs.org/-/v1/search` | JSON | packages |
+| arXiv | `export.arxiv.org/api/query` | Atom XML | papers |
+| Google News | `news.google.com/rss/search` | RSS | recent news |
+
+> These are third-party public services. Their limits and availability can
+> change without notice — that is exactly why the plugin ships a backend chain
+> instead of a single backend, and why failures are handled gracefully.
+
+**TinyFish** is the one backend with a hard quota rather than a rate limit: its
+anonymous guest tier allows **50 searches per day per network** (shared by every
+machine behind the same IP) plus 30 requests per minute. That is why it sits
+late in the chain — the backends before it need no quota at all. A free TinyFish
+account raises the cap to 12,000/day, but that needs a key and is therefore out
+of scope for this bundle.
 
 ---
 
@@ -73,14 +94,29 @@ call the `web_search` tool directly.
 The plugin registers a provider named `keyless-mcp` on the `ctx.web` seam. When
 the model calls `web_search`:
 
-1. Backends are tried in order — **Exa** first, then **Parallel**.
+1. Backends are tried in the configured order — general engines first, then the
+   quota-free specialist backends.
 2. The first backend that returns sources wins.
-3. A backend that fails or returns nothing is skipped and logged as a warning.
+3. A backend that fails is skipped, logged as a warning, and put on **cooldown**.
 4. If every backend fails, a `WEB_PROVIDER_ERROR` is raised carrying each
    backend's reason.
 
-Both backends are called **statelessly** — no `initialize` handshake and no
-session id — so one search is one HTTP request.
+Every backend is called **statelessly** — one search is one HTTP request, with
+no `initialize` handshake and no session id.
+
+### Cooldown
+
+A failing backend is not retried on every subsequent search. The first failure
+parks it for 60 seconds, and each consecutive failure doubles that window up to
+15 minutes. A backend that answers again is taken off cooldown immediately.
+
+When the server states its own wait, that figure is used instead — an HTTP
+`Retry-After` header, or a reset instant embedded in a quota message. TinyFish's
+guest tier reports its daily-exhaustion time this way, so it goes quiet until the
+real reset rather than being retried every 15 minutes.
+
+This matters because public endpoints fail in bursts: a blocked engine would
+otherwise add its timeout to *every* search the user makes.
 
 ---
 
@@ -92,14 +128,14 @@ profile patch.
 
 | Field | Default | Meaning |
 |---|---|---|
-| `backends` | `[exa, parallel]` | Backend order; the first that answers wins |
-| `timeoutMs` | `45000` | Per-search timeout for one backend, in milliseconds |
+| `backends` | `[webcrawler, mwmbl, lumy, wikipedia, hackernews, tinyfish, exa, parallel]` | Backend order; the first that answers wins |
+| `timeoutMs` | `20000` | Per-search timeout for one backend, in milliseconds |
 | `maxResults` | `10` | Upper bound on sources requested per backend |
 
 The seam still enforces the caller's own `maxResults`, so a lower value from
 `dsh-tool-web` always wins.
 
-Example — Parallel only, longer timeout:
+Example — only the always-available specialist backends, longer timeout:
 
 ```yaml
 - insert:
@@ -107,9 +143,28 @@ Example — Parallel only, longer timeout:
       name: 'dsh-keyless-search'
       config:
         backends:
-          - parallel
+          - wikipedia
+          - hackernews
         timeoutMs: 60000
 ```
+
+Example — add the topic-specific sources to the chain:
+
+```yaml
+- insert:
+    - id: keyless-search
+      name: 'dsh-keyless-search'
+      config:
+        backends:
+          - webcrawler
+          - mwmbl
+          - mdn
+          - npm
+          - arxiv
+```
+
+Unknown backend names are dropped with a warning; an empty resulting list falls
+back to the default chain.
 
 ---
 
@@ -136,6 +191,18 @@ steps.
 
 ---
 
+## Development
+
+```bash
+npm test          # parser + provider tests, no network
+npm run test:live # opt-in smoke test against the real public backends
+```
+
+`npm test` is hermetic: it feeds recorded response shapes through every parser
+and exercises backend chaining, cooldowns, and cancellation with fake backends.
+
+---
+
 ## Removing
 
 ```bash
@@ -158,12 +225,20 @@ by this bundle's patch. If you override that row yourself, you must restate
 `searchProvider` is unset. This bundle pins `searchProvider: keyless-mcp`, so this
 only happens if you removed that line.
 
-**Every backend fails.** Check network egress to `mcp.exa.ai` and
-`mcp.parallel.ai`. Corporate proxies and firewalls are the usual cause.
+**Every backend fails.** Check network egress to the hosts in the table above.
+Corporate proxies and firewalls are the usual cause. The raised error names every
+backend's individual reason, so start there.
 
 **No results but no error.** A partial result is returned when at least one
 backend answers. The plugin raises an error only when every backend returns
 nothing or fails.
+
+**Searches suddenly take longer.** A backend has probably started failing and is
+being retried through its first cooldown. The structured warning line
+(`keyless_search_backend_failed`) names it.
+
+**A backend keeps getting skipped.** Its cooldown may have grown to several
+minutes after repeated failures. Restarting DSH clears the cooldowns.
 
 ---
 

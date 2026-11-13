@@ -1,8 +1,8 @@
 # dsh-keyless-search bundle layer.
 #
-# Registers a web-search provider that needs NO API key. Both backends are
-# hosted MCP services that answer unauthenticated, the same approach the
-# OpenCode CLI uses for its `websearch` tool.
+# Registers a web-search provider that needs NO API key. It chains several
+# independent public backends so one endpoint being down or rate-limited never
+# breaks search: the first backend that answers wins.
 #
 # The `web` row's whole `config` block is REPLACED by this patch, so every field
 # the base bundle sets is restated: dropping `fetchProvider: http` would leave two
@@ -12,10 +12,21 @@
     - id: keyless-search
       name: 'dsh-keyless-search'
       config:
+        # General backends first. The specialist ones (wikipedia, hackernews) are
+        # quota-free and cheap, and they cover the fact that free general engines
+        # are the least reliable part of the chain. Add mdn, npm, arxiv, or
+        # googlenews to include topic-specific sources in the automatic path.
+        # tinyfish sits late because its guest tier is only 50 searches per day.
         backends:
+          - webcrawler
+          - mwmbl
+          - lumy
+          - wikipedia
+          - hackernews
+          - tinyfish
           - exa
           - parallel
-        timeoutMs: 45000
+        timeoutMs: 20000
         maxResults: 10
 
 - id: web
