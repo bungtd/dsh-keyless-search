@@ -11,6 +11,18 @@ fitur pencarian. Tanpa daftar akun, tanpa key, tanpa kartu kredit.
 
 Berjalan di **Windows, macOS, dan Linux**.
 
+## Mulai cepat
+
+```bash
+dsh plugin --profile <nama-profil> add github:bungtd/dsh-keyless-search
+# restart DSH, lalu minta ia mencari informasi terkini
+```
+
+Masih memakai v1 (hanya Exa + Parallel)? Rantai itu sudah tidak berfungsi —
+jalankan perintah yang sama untuk upgrade, lalu restart. Lihat
+[Instalasi](#instalasi) untuk pin versi dan [Verifikasi](#verifikasi) untuk
+memastikan sudah aktif.
+
 ---
 
 ## Kenapa tidak butuh API key
@@ -53,22 +65,38 @@ cakupan bundle ini.
 
 ## Instalasi
 
+Satu perintah, jalankan di terminal Anda sendiri:
+
 ```bash
-dsh plugin --profile <nama-profil> add dsh-keyless-search
+dsh plugin --profile <nama-profil> add github:bungtd/dsh-keyless-search
 ```
 
-Ganti `<nama-profil>` dengan nama profil Anda (`web`, `tui`, `superagent`, …).
+Ganti `<nama-profil>` dengan profil yang benar-benar Anda boot (`web`, `tui`,
+`superagent`, …). Kalau profilnya belum ada, perintah ini akan membuatnya.
 
-Perintah itu mendaftarkan paket sebagai bundle di `package.json` profil Anda dan
-menerapkan patch-nya. Restart DSH setelahnya.
+Perintah itu mendaftarkan bundle di `package.json` profil Anda dan menerapkan
+patch-nya. **Restart DSH setelahnya** supaya search provider baru ter-mount.
+
+> **Pakai URL `github:` lengkap.** Paket ini tidak diterbitkan ke npm, dan nama
+> npm `dsh-keyless-search` sudah dipakai proyek lain — menjalankan
+> `add dsh-keyless-search` akan memasang paket *itu*, bukan plugin ini.
+
+### Pin versi
+
+`main` adalah branch pengembangan; pin tag rilis supaya instalasi reproducible:
+
+```bash
+dsh plugin --profile <nama-profil> add github:bungtd/dsh-keyless-search#v2.0.0
+```
 
 ### Instalasi dari checkout lokal
 
 ```bash
+git clone https://github.com/bungtd/dsh-keyless-search.git
 dsh plugin --profile <nama-profil> add /path/absolut/ke/dsh-keyless-search
 ```
 
-Di Windows gunakan path penuh seperti `C:\src\dsh-keyless-search`.
+Di Windows gunakan path penuh, misalnya `C:\src\dsh-keyless-search`.
 
 ### Verifikasi
 

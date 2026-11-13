@@ -11,6 +11,17 @@ break search. No sign-up, no key, no credit card.
 
 Works on **Windows, macOS, and Linux**.
 
+## Quick start
+
+```bash
+dsh plugin --profile <your-profile> add github:bungtd/dsh-keyless-search
+# restart DSH, then ask it to search for something current
+```
+
+Already on v1 (Exa + Parallel only)? That chain stopped working — run the same
+command to upgrade, then restart. See [Install](#install) for version pinning and
+[Verify](#verify) to confirm it took effect.
+
 ---
 
 ## Why it needs no API key
@@ -54,22 +65,39 @@ of scope for this bundle.
 
 ## Install
 
+One command, run in your own terminal:
+
 ```bash
-dsh plugin --profile <your-profile> add dsh-keyless-search
+dsh plugin --profile <your-profile> add github:bungtd/dsh-keyless-search
 ```
 
-Replace `<your-profile>` with your profile name (`web`, `tui`, `superagent`, …).
+Replace `<your-profile>` with the profile you actually boot (`web`, `tui`,
+`superagent`, …). If the profile does not exist yet, the command creates it.
 
-That registers the package as a bundle in your profile's `package.json` and
-applies its patch. Restart DSH afterwards.
+That registers the bundle in your profile's `package.json` and applies its patch.
+**Restart DSH afterwards** so the new search provider is mounted.
+
+> **Use the full `github:` URL.** This package is not published to npm, and the
+> npm name `dsh-keyless-search` belongs to an unrelated project — running
+> `add dsh-keyless-search` installs *that* package instead, which is not this
+> plugin.
+
+### Pin a version
+
+`main` is the development branch; pin a release tag for reproducible installs:
+
+```bash
+dsh plugin --profile <your-profile> add github:bungtd/dsh-keyless-search#v2.0.0
+```
 
 ### Install from a local checkout
 
 ```bash
+git clone https://github.com/bungtd/dsh-keyless-search.git
 dsh plugin --profile <your-profile> add /absolute/path/to/dsh-keyless-search
 ```
 
-On Windows use a full path such as `C:\src\dsh-keyless-search`.
+On Windows use the full path, e.g. `C:\src\dsh-keyless-search`.
 
 ### Verify
 
