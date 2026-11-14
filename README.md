@@ -2,6 +2,8 @@
 
 **English** | [Bahasa Indonesia](README.id.md)
 
+[![test](https://github.com/bungtd/dsh-keyless-search/actions/workflows/test.yml/badge.svg)](https://github.com/bungtd/dsh-keyless-search/actions/workflows/test.yml)
+
 **Web search for DeepSeek Harness that works without an API key.**
 
 A DSH bundle that registers a `web_search` backend for the `ctx.web` seam. It
@@ -29,16 +31,18 @@ command to upgrade, then restart. See [Install](#install) for version pinning an
 Every backend is a public endpoint that answers unauthenticated requests — no
 credential is read, stored, or transmitted.
 
+Listed in default chain order:
+
 | Backend | Endpoint | Transport | Role |
 |---|---|---|---|
-| WebCrawler | `webcrawler.com/search/web` | HTML | general |
 | Mwmbl | `api.mwmbl.org/search` | JSON | general |
-| Lumy | `search.lumy.live/search?format=json` | JSON (SearXNG) | general |
-| Wikipedia | `en.wikipedia.org/w/api.php` | JSON | specialist |
-| Hacker News | `hn.algolia.com/api/v1/search` | JSON | specialist |
-| TinyFish | `agent.tinyfish.ai/mcp` | MCP JSON-RPC | general (guest tier) |
 | Exa | `mcp.exa.ai/mcp` | MCP JSON-RPC | general |
 | Parallel | `mcp.parallel.ai/mcp` | MCP JSON-RPC | general |
+| Wikipedia | `en.wikipedia.org/w/api.php` | JSON | specialist |
+| TinyFish | `agent.tinyfish.ai/mcp` | MCP JSON-RPC | general (guest tier) |
+| Hacker News | `hn.algolia.com/api/v1/search` | JSON | specialist |
+| Lumy | `search.lumy.live/search?format=json` | JSON (SearXNG) | general |
+| WebCrawler | `webcrawler.com/search/web` | HTML | general |
 
 Optional backends, not in the default chain — add the ones you want to
 `backends`:
@@ -54,10 +58,31 @@ Optional backends, not in the default chain — add the ones you want to
 > change without notice — that is exactly why the plugin ships a backend chain
 > instead of a single backend, and why failures are handled gracefully.
 
+### Measured health (2026-11-14)
+
+This is the evidence the default order is based on. Run
+`node scripts/probe.mjs` yourself to refresh it — the numbers move.
+
+| Backend | Verdict | p50 | Note |
+|---|---|---|---|
+| mwmbl | healthy | ~760 ms | fastest reliable general engine |
+| exa | healthy | ~690 ms | recovered after a multi-day 429 block |
+| parallel | healthy | ~1160 ms | |
+| wikipedia | healthy | ~870 ms | quota-free, encyclopedic only |
+| tinyfish | healthy | ~3600 ms | 50 searches/day guest quota |
+| hackernews | degraded | ~860 ms | some queries legitimately have no hits |
+| lumy | degraded | 9–22 s | meta-searcher, slow and inconsistent |
+| webcrawler | **down** | — | IP-blocked (HTTP 403); kept last in case it lifts |
+
+**How fast this decays:** within 17 hours WebCrawler went from the *best*
+backend (14/14 queries, ~520 ms) to IP-blocked, while Exa and Parallel went from
+a multi-day 429 to fully working. Any hardcoded order is a snapshot. That is
+what `scripts/probe.mjs` is for.
+
 **TinyFish** is the one backend with a hard quota rather than a rate limit: its
 anonymous guest tier allows **50 searches per day per network** (shared by every
 machine behind the same IP) plus 30 requests per minute. That is why it sits
-late in the chain — the backends before it need no quota at all. A free TinyFish
+late in the chain — the backends before it need far less quota. A free TinyFish
 account raises the cap to 12,000/day, but that needs a key and is therefore out
 of scope for this bundle.
 
@@ -87,7 +112,7 @@ That registers the bundle in your profile's `package.json` and applies its patch
 `main` is the development branch; pin a release tag for reproducible installs:
 
 ```bash
-dsh plugin --profile <your-profile> add github:bungtd/dsh-keyless-search#v2.0.0
+dsh plugin --profile <your-profile> add github:bungtd/dsh-keyless-search#v2.1.0
 ```
 
 ### Install from a local checkout
@@ -146,6 +171,10 @@ real reset rather than being retried every 15 minutes.
 This matters because public endpoints fail in bursts: a blocked engine would
 otherwise add its timeout to *every* search the user makes.
 
+A cooldown is a runtime patch, not a fix: a backend that stays blocked wastes one
+request per search after its cooldown expires. Re-run
+[`scripts/probe.mjs`](#development) periodically and reorder `backends`.
+
 ---
 
 ## Configuration
@@ -156,7 +185,7 @@ profile patch.
 
 | Field | Default | Meaning |
 |---|---|---|
-| `backends` | `[webcrawler, mwmbl, lumy, wikipedia, hackernews, tinyfish, exa, parallel]` | Backend order; the first that answers wins |
+| `backends` | `[mwmbl, exa, parallel, wikipedia, tinyfish, hackernews, lumy, webcrawler]` | Backend order; the first that answers wins |
 | `timeoutMs` | `20000` | Per-search timeout for one backend, in milliseconds |
 | `maxResults` | `10` | Upper bound on sources requested per backend |
 
@@ -222,8 +251,26 @@ steps.
 ## Development
 
 ```bash
-npm test          # parser + provider tests, no network
-npm run test:live # opt-in smoke test against the real public backends
+npm test              # parser + provider tests, no network
+npm run test:live     # opt-in smoke test against the real public backends
+node scripts/probe.mjs # measure every backend, check whether the chain order is stale
+```
+
+`scripts/probe.mjs` is deliberately frugal — it spaces requests out and defaults
+to two queries per backend. Flooding these services is what makes them start
+refusing your network: the block on WebCrawler, and Lumy slowing to 20 s, both
+followed a stress test.
+
+Running it prints a table plus a verdict, and warns when a healthy backend is
+sitting behind a dead one:
+
+```
+  mwmbl        healthy   ok=2 empty=0 fail=0 p50=761ms
+  webcrawler   down      ok=0 empty=0 fail=2
+...
+2 backend(s) down: webcrawler, lumy
+Note: mwmbl is healthy but sits at position 2. Backends ahead of it are
+wasting a request on every search.
 ```
 
 `npm test` is hermetic: it feeds recorded response shapes through every parser

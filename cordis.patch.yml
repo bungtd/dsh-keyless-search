@@ -12,20 +12,25 @@
     - id: keyless-search
       name: 'dsh-keyless-search'
       config:
-        # General backends first. The specialist ones (wikipedia, hackernews) are
-        # quota-free and cheap, and they cover the fact that free general engines
-        # are the least reliable part of the chain. Add mdn, npm, arxiv, or
+        # Measured order, not a permanent ranking: public endpoints drift, and
+        # within 17 hours WebCrawler went from best to IP-blocked while Exa and
+        # Parallel recovered from a multi-day 429. Re-check with
+        # `node scripts/probe.mjs` and move what recovered ahead of what broke.
+        #
+        # mwmbl/exa/parallel are the fast, reliable general engines; wikipedia is
+        # quota-free; tinyfish sits late because its guest tier is only 50
+        # searches/day per network; lumy is a slow meta-searcher; webcrawler is
+        # currently blocked but kept in case it lifts. Add mdn, npm, arxiv, or
         # googlenews to include topic-specific sources in the automatic path.
-        # tinyfish sits late because its guest tier is only 50 searches per day.
         backends:
-          - webcrawler
           - mwmbl
-          - lumy
-          - wikipedia
-          - hackernews
-          - tinyfish
           - exa
           - parallel
+          - wikipedia
+          - tinyfish
+          - hackernews
+          - lumy
+          - webcrawler
         timeoutMs: 20000
         maxResults: 10
 

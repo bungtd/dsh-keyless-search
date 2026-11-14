@@ -19,6 +19,7 @@ import test from "node:test";
 import {
 	BACKENDS,
 	CODE_ABORTED,
+	DEFAULT_BACKENDS,
 	KeylessSearchProvider,
 	parseArxivXml,
 	parseExaText,
@@ -561,6 +562,14 @@ test("the provider accepts backend names as well as entries", () => {
 	const provider = new KeylessSearchProvider({ backends: ["mwmbl", "wikipedia"], timeoutMs: 1_000, maxResults: 5 });
 	assert.deepEqual(provider.backends, ["mwmbl", "wikipedia"]);
 	assert.equal(provider.id, "keyless-mcp");
+});
+
+test("every default backend exists in the registry and is not repeated", () => {
+	assert.ok(DEFAULT_BACKENDS.length > 0, "a default chain is configured");
+	assert.equal(new Set(DEFAULT_BACKENDS).size, DEFAULT_BACKENDS.length, "no backend appears twice");
+	for (const id of DEFAULT_BACKENDS) {
+		assert.ok(BACKENDS[id] !== undefined, `${id} is a known backend`);
+	}
 });
 
 test("the backend registry documents a general chain first", () => {

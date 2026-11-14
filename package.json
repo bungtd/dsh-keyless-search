@@ -1,7 +1,7 @@
 {
   "name": "dsh-keyless-search",
-  "version": "2.0.0",
-  "description": "Keyless web search for DeepSeek Harness: a chain of public search backends (WebCrawler, Mwmbl, Exa, Parallel, Wikipedia, Hacker News, MDN, npm, arXiv, Google News) that need no API key. Works on Windows, macOS, and Linux.",
+  "version": "2.1.0",
+  "description": "Keyless web search for DeepSeek Harness: a chain of public search backends (Mwmbl, Exa, Parallel, Wikipedia, Hacker News, TinyFish, Lumy, WebCrawler) that need no API key, ordered by measured health. Windows, macOS, and Linux.",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -18,7 +18,8 @@
   ],
   "scripts": {
     "test": "node --test \"test/*.test.js\"",
-    "test:live": "DSH_KEYLESS_LIVE=1 node --test \"test/live.test.js\""
+    "test:live": "node test/live.test.js",
+    "probe": "node scripts/probe.mjs"
   },
   "engines": {
     "node": ">=18"

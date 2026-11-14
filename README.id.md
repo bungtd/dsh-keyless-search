@@ -2,6 +2,8 @@
 
 [English](README.md) | **Bahasa Indonesia**
 
+[![test](https://github.com/bungtd/dsh-keyless-search/actions/workflows/test.yml/badge.svg)](https://github.com/bungtd/dsh-keyless-search/actions/workflows/test.yml)
+
 **Web search untuk DeepSeek Harness yang berjalan tanpa API key.**
 
 Bundle DSH yang mendaftarkan backend `web_search` pada seam `ctx.web`. Beberapa
@@ -30,16 +32,18 @@ memastikan sudah aktif.
 Setiap backend adalah endpoint publik yang menjawab request tanpa autentikasi —
 tidak ada kredensial yang dibaca, disimpan, atau dikirim.
 
+Diurutkan sesuai rantai default:
+
 | Backend | Endpoint | Transport | Peran |
 |---|---|---|---|
-| WebCrawler | `webcrawler.com/search/web` | HTML | umum |
 | Mwmbl | `api.mwmbl.org/search` | JSON | umum |
-| Lumy | `search.lumy.live/search?format=json` | JSON (SearXNG) | umum |
-| Wikipedia | `en.wikipedia.org/w/api.php` | JSON | khusus |
-| Hacker News | `hn.algolia.com/api/v1/search` | JSON | khusus |
-| TinyFish | `agent.tinyfish.ai/mcp` | MCP JSON-RPC | umum (tier tamu) |
 | Exa | `mcp.exa.ai/mcp` | MCP JSON-RPC | umum |
 | Parallel | `mcp.parallel.ai/mcp` | MCP JSON-RPC | umum |
+| Wikipedia | `en.wikipedia.org/w/api.php` | JSON | khusus |
+| TinyFish | `agent.tinyfish.ai/mcp` | MCP JSON-RPC | umum (tier tamu) |
+| Hacker News | `hn.algolia.com/api/v1/search` | JSON | khusus |
+| Lumy | `search.lumy.live/search?format=json` | JSON (SearXNG) | umum |
+| WebCrawler | `webcrawler.com/search/web` | HTML | umum |
 
 Backend opsional, tidak ada di rantai default — tambahkan sendiri ke `backends`:
 
@@ -54,10 +58,31 @@ Backend opsional, tidak ada di rantai default — tambahkan sendiri ke `backends
 > berubah tanpa pemberitahuan — itulah alasan plugin ini membawa rantai backend,
 > bukan satu backend tunggal, dan menangani kegagalan dengan rapi.
 
+### Kesehatan terukur (2026-11-14)
+
+Ini bukti di balik urutan default. Jalankan `node scripts/probe.mjs` sendiri
+untuk memperbaruinya — angkanya bergerak.
+
+| Backend | Status | p50 | Catatan |
+|---|---|---|---|
+| mwmbl | sehat | ~760 ms | mesin umum tercepat yang andal |
+| exa | sehat | ~690 ms | pulih setelah diblokir 429 berhari-hari |
+| parallel | sehat | ~1160 ms | |
+| wikipedia | sehat | ~870 ms | bebas kuota, hanya ensiklopedis |
+| tinyfish | sehat | ~3600 ms | kuota tamu 50 pencarian/hari |
+| hackernews | menurun | ~860 ms | sebagian query memang tidak ada hasil |
+| lumy | menurun | 9–22 s | meta-search, lambat dan tidak konsisten |
+| webcrawler | **mati** | — | diblokir per-IP (HTTP 403); disimpan di akhir kalau pulih |
+
+**Seberapa cepat ini lapuk:** dalam 17 jam WebCrawler berubah dari backend
+*terbaik* (14/14 query, ~520 ms) menjadi diblokir IP, sementara Exa dan Parallel
+berubah dari 429 berhari-hari menjadi berfungsi penuh. Urutan apa pun yang
+di-hardcode hanyalah snapshot — itulah gunanya `scripts/probe.mjs`.
+
 **TinyFish** adalah satu-satunya backend dengan kuota keras, bukan sekadar rate
 limit: tier tamu anonimnya memberi **50 pencarian/hari per jaringan** (dipakai
 bersama oleh semua mesin di balik IP yang sama) plus 30 request/menit. Karena itu
-posisinya di belakang — backend sebelumnya tidak butuh kuota sama sekali. Akun
+posisinya di belakang — backend sebelumnya jauh lebih sedikit butuh kuota. Akun
 TinyFish gratis menaikkan batas ke 12.000/hari, tapi itu butuh key dan di luar
 cakupan bundle ini.
 
@@ -86,7 +111,7 @@ patch-nya. **Restart DSH setelahnya** supaya search provider baru ter-mount.
 `main` adalah branch pengembangan; pin tag rilis supaya instalasi reproducible:
 
 ```bash
-dsh plugin --profile <nama-profil> add github:bungtd/dsh-keyless-search#v2.0.0
+dsh plugin --profile <nama-profil> add github:bungtd/dsh-keyless-search#v2.1.0
 ```
 
 ### Instalasi dari checkout lokal
@@ -148,6 +173,10 @@ dicoba ulang setiap 15 menit.
 Ini penting karena endpoint publik gagal secara bergelombang: tanpa cooldown,
 satu mesin yang diblokir akan menambahkan timeout-nya ke *setiap* pencarian.
 
+Cooldown hanya tambalan runtime, bukan solusi: backend yang tetap diblokir
+membuang satu request per pencarian setelah cooldown-nya habis. Jalankan
+[`scripts/probe.mjs`](#pengembangan) secara berkala dan urutkan ulang `backends`.
+
 ---
 
 ## Konfigurasi
@@ -158,7 +187,7 @@ profil Anda.
 
 | Field | Default | Arti |
 |---|---|---|
-| `backends` | `[webcrawler, mwmbl, lumy, wikipedia, hackernews, tinyfish, exa, parallel]` | Urutan backend; yang pertama menjawab menang |
+| `backends` | `[mwmbl, exa, parallel, wikipedia, tinyfish, hackernews, lumy, webcrawler]` | Urutan backend; yang pertama menjawab menang |
 | `timeoutMs` | `20000` | Timeout per pencarian untuk satu backend, milidetik |
 | `maxResults` | `10` | Batas atas sumber yang diminta per backend |
 
@@ -224,9 +253,15 @@ jalur perintah yang sama di Windows dan macOS, tanpa langkah khusus platform.
 ## Pengembangan
 
 ```bash
-npm test          # test parser + provider, tanpa jaringan
-npm run test:live # smoke test opt-in ke backend publik yang sebenarnya
+npm test               # test parser + provider, tanpa jaringan
+npm run test:live      # smoke test opt-in ke backend publik yang sebenarnya
+node scripts/probe.mjs # ukur semua backend, cek apakah urutan rantai sudah lapuk
 ```
+
+`scripts/probe.mjs` sengaja hemat — ia memberi jeda antar request dan default-nya
+dua query per backend. Membanjiri layanan ini justru yang membuat mereka mulai
+menolak jaringan Anda: blokir WebCrawler dan Lumy yang melambat ke 20 detik
+keduanya terjadi setelah uji stres.
 
 `npm test` bersifat hermetis: ia mengalirkan bentuk respons yang direkam ke
 setiap parser dan menguji rangkaian backend, cooldown, serta pembatalan dengan

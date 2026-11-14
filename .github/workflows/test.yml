@@ -1,0 +1,161 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # The plugin claims Windows/macOS/Linux parity, so run the suite on all three.
+  os-parity:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # No `npm ci`: the package has no dependencies and no lockfile. That is
+      # the point — a test run must not need an install step.
+      - name: Run the hermetic test suite
+        run: node --test
+
+  # `engines` claims node >=18. Verify it instead of assuming it: the oldest
+  # entry here is the floor the claim is allowed to state.
+  node-versions:
+    name: node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Report the runtime under test
+        run: node --version
+
+      - name: Run the hermetic test suite
+        run: node --test
+
+      # The plugin must load with no dependencies present at all, which is the
+      # property `engines` really needs to guarantee.
+      - name: The library must import cleanly and expose its provider
+        run: |
+          node --input-type=module -e '
+            import { BACKENDS, DEFAULT_BACKENDS, KeylessSearchProvider } from "./lib/index.js";
+            const provider = new KeylessSearchProvider({ backends: DEFAULT_BACKENDS, timeoutMs: 1000, maxResults: 3 });
+            if (!provider.available()) throw new Error("provider must be available with a default chain");
+            if (Object.keys(BACKENDS).length === 0) throw new Error("no backends registered");
+            console.log("loaded on", process.version, "with", Object.keys(BACKENDS).length, "backends");
+          '
+
+  contract:
+    name: bundle contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # These guard the properties the whole design rests on. A well-meaning
+      # refactor that adds an import or a path would break Windows/macOS
+      # installs silently, so assert them rather than trust review.
+      - name: lib/ must stay import-free and path-free
+        run: |
+          set -eu
+          if grep -nE '^[[:space:]]*import[[:space:]]' lib/index.js; then
+            echo "::error::lib/index.js must not import anything (dependency-free bundle)"; exit 1
+          fi
+          if grep -nE 'require\(|from "node:|node:path|__dirname|process\.cwd' lib/index.js; then
+            echo "::error::lib/index.js must stay path-free for Windows/macOS parity"; exit 1
+          fi
+          echo "lib/index.js is import-free and path-free"
+
+      - name: package.json must stay publishable and dependency-free
+        run: |
+          set -eu
+          node -e '
+            const p = require("./package.json");
+            const fail = (m) => { console.error("::error::" + m); process.exit(1); };
+            if (p.dependencies && Object.keys(p.dependencies).length > 0) fail("the bundle must not have runtime dependencies");
+            if (!p.dsh?.bundle?.patch) fail("package.json must declare dsh.bundle.patch");
+            if (!p.files?.includes("lib/index.js")) fail("files must ship lib/index.js");
+            if (!p.files?.includes("cordis.patch.yml")) fail("files must ship cordis.patch.yml");
+            console.log("package.json contract ok:", p.name + "@" + p.version);
+          '
+
+      - name: the bundle patch must parse and point at this provider
+        run: |
+          set -eu
+          node -e '
+            const fs = require("node:fs");
+            const yml = fs.readFileSync("cordis.patch.yml", "utf8");
+            const fail = (m) => { console.error("::error::" + m); process.exit(1); };
+            if (!/id: keyless-search/.test(yml)) fail("patch must insert the keyless-search row");
+            if (!/searchProvider: keyless-mcp/.test(yml)) fail("patch must pin searchProvider: keyless-mcp");
+            if (!/fetchProvider: http/.test(yml)) fail("patch must restate fetchProvider: http, or web_fetch goes ambiguous");
+            console.log("patch contract ok");
+          '
+
+      - name: every configured backend must exist in the registry
+        run: |
+          set -eu
+          node --input-type=module -e '
+            import fs from "node:fs";
+            import { BACKENDS } from "./lib/index.js";
+            const yml = fs.readFileSync("cordis.patch.yml", "utf8");
+            const block = yml.split("backends:")[1]?.split("\n- id:")[0] ?? "";
+            const ids = [...block.matchAll(/^\s+- ([A-Za-z][\w-]*)$/gm)].map((m) => m[1]);
+            if (ids.length === 0) {
+              console.error("::error::cordis.patch.yml must configure at least one backend");
+              process.exit(1);
+            }
+            const unknown = ids.filter((id) => BACKENDS[id] === undefined);
+            if (unknown.length > 0) {
+              console.error("::error::cordis.patch.yml names unknown backend(s): " + unknown.join(", "));
+              process.exit(1);
+            }
+            console.log("all " + ids.length + " configured backends exist:", ids.join(", "));
+          '
+
+  package:
+    name: npm package contents
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: npm pack must contain exactly the shipped files
+        run: |
+          set -eu
+          npm pack --dry-run --json > /tmp/pack.json
+          node -e '
+            const [info] = require("/tmp/pack.json");
+            const files = info.files.map((f) => f.path).sort();
+            const required = ["LICENSE", "README.id.md", "README.md", "cordis.patch.yml", "lib/index.js", "package.json"];
+            const missing = required.filter((f) => !files.includes(f));
+            const fail = (m) => { console.error("::error::" + m); process.exit(1); };
+            if (missing.length > 0) fail("npm pack is missing: " + missing.join(", "));
+            // Tests, scripts and research must never ship to users.
+            const leaked = files.filter((f) => /^(test|scripts|research|\.github)\//.test(f));
+            if (leaked.length > 0) fail("npm pack must not ship dev files: " + leaked.join(", "));
+            console.log("npm pack ok (" + files.length + " files):", files.join(", "));
+          '
